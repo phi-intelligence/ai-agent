@@ -1,0 +1,23 @@
+agent_id: "your-agent-uuid-here"
+org_id: "your-org-uuid-here"
+name: "Warehouse Analyst #1"
+industry: "logistics"
+role: "warehouse_analyst"
+llm:
+  model: "gpt-4"
+  temperature: 0.2
+tools:
+  - key: "db"
+    required_settings: ["dsn"]
+  - key: "file"
+    required_settings: ["base_path"]
+memory:
+  org_namespace: "org_your-org-uuid"
+  agent_namespace: "agent_your-agent-uuid"
+workflows:
+  - type: "DAILY_WAREHOUSE_REPORT"
+    name: "Daily Warehouse Report"
+    description: "Generate daily warehouse performance report"
+    schedule: "0 17 * * *"
+
+

@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "phi-utils"
+version = "0.1.0"
+description = "Shared utilities for Phi Agents"
+authors = ["Phi Agents Team"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
