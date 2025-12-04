@@ -1,1 +1,8 @@
-{}
+{
+  "/not-found": "app/not-found.js",
+  "/agents/[agentId]/page": "app/agents/[agentId]/page.js",
+  "/page": "app/page.js",
+  "/security/page": "app/security/page.js",
+  "/contact/page": "app/contact/page.js",
+  "/login/page": "app/login/page.js"
+}

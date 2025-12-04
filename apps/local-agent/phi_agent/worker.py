@@ -2,7 +2,7 @@ import asyncio
 from typing import Dict, Any
 from phi_agent.config import AgentConfig
 from phi_agent.client import OrchestratorClient
-from phi_agent.tools import DBTool, FileTool
+from phi_agent.tools import DBTool, FileTool, WebTool, DashboardTool
 
 
 class Worker:
@@ -21,11 +21,41 @@ class Worker:
             tool_key = tool_config.key
             tool_config_dict = {}
             
-            # Get tool-specific config from environment or defaults
-            if tool_key == "db":
+            # Get tool-specific config from local config
+            if tool_key == "db" and self.config.local and self.config.local.db:
+                db_config = self.config.local.db
+                if db_config.dsn:
+                    tool_config_dict["dsn"] = db_config.dsn
+                else:
+                    tool_config_dict["host"] = db_config.host
+                    tool_config_dict["port"] = db_config.port
+                    tool_config_dict["database"] = db_config.database
+                    tool_config_dict["username"] = db_config.username
+                    tool_config_dict["password"] = db_config.password
                 self.tools["db"] = DBTool(tool_config_dict)
-            elif tool_key == "file":
+            elif tool_key == "file" and self.config.local and self.config.local.file_roots:
+                file_config = self.config.local.file_roots
+                tool_config_dict["base_path"] = file_config.base_path or file_config.exports or "."
                 self.tools["file"] = FileTool(tool_config_dict)
+            elif tool_key == "web":
+                # WebTool doesn't need special config
+                self.tools["web"] = WebTool({})
+            elif tool_key == "dashboard":
+                # DashboardTool config
+                dashboard_config = {}
+                if self.config.local and self.config.local.file_roots:
+                    dashboard_config["base_path"] = self.config.local.file_roots.reports or "/tmp/phi_dashboards"
+                self.tools["dashboard"] = DashboardTool(dashboard_config)
+            elif tool_key == "db":
+                # Fallback to environment variables
+                self.tools["db"] = DBTool({})
+            elif tool_key == "file":
+                # Fallback to environment variables
+                self.tools["file"] = FileTool({})
+            elif tool_key == "web":
+                self.tools["web"] = WebTool({})
+            elif tool_key == "dashboard":
+                self.tools["dashboard"] = DashboardTool({})
             # Add more tools as needed
     
     async def process_task(self, task: Dict[str, Any]):

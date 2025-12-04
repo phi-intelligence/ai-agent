@@ -12,9 +12,18 @@ from phi_utils.logging import setup_logging
 logger = setup_logging("core-api.profile_service")
 
 from app.models import Agent, Industry, RoleTemplate, DocumentChunk, Tool, AgentTool
+from app.config import settings
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+# Initialize OpenAI client - lazy initialization to ensure settings are loaded
+def get_openai_client():
+    """Get OpenAI client with current API key from settings"""
+    api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key == "your-openai-api-key-here":
+        raise ValueError("OPENAI_API_KEY is not set or is still the placeholder value")
+    return OpenAI(api_key=api_key)
+
+# For backward compatibility, but will be recreated on each use
+openai_client = None
 
 
 def generate_agent_profile(
@@ -97,7 +106,8 @@ Be specific and detailed. The system prompt should be professional and clearly d
     from phi_utils.retry import retry_sync
     
     def call_llm():
-        return openai_client.chat.completions.create(
+        client = get_openai_client()
+        return client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an expert at designing AI agent profiles and system prompts. Always respond with valid JSON."},
@@ -145,7 +155,13 @@ Be specific and detailed. The system prompt should be professional and clearly d
         "capabilities": profile_data.get("capabilities", []),
         "workflows": profile_data.get("workflows", []),
         "safety_constraints": profile_data.get("safety_constraints", []),
-        "tool_usage_rules": profile_data.get("tool_usage_rules", {})
+        "tool_usage_rules": profile_data.get("tool_usage_rules", {}),
+        "communication": profile_data.get("communication", {
+            "can_email": False,
+            "default_recipients": [],
+            "can_slack": False,
+            "slack_channel": None
+        })
     }
     
     return system_prompt, config

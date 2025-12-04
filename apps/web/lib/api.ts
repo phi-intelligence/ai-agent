@@ -162,6 +162,13 @@ export const tasksApi = {
     const response = await orchestratorApi.get(`/tasks/${taskId}`)
     return response.data
   },
+  listByAgent: async (agentId: string) => {
+    // Use admin API to list tasks for this agent
+    const response = await api.get('/admin/tasks', {
+      params: { agent_id: agentId, limit: 50 }
+    })
+    return response.data
+  },
 }
 
 // Admin API

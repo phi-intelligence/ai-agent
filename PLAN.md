@@ -883,3 +883,433 @@ Local Llama/Qwen (when you have GPUs).
 Lightweight tasks → local models.
 Heavy/critical reasoning → best available model.
  Benchmark and tune.
+
+
+
+
+ # Phi Agents – Task Backlog (From Current Status Onwards)
+
+You already have:
+- Core platform (auth, orgs, agents, docs, tasks)
+- Daily Warehouse Report workflow
+- PROJECT_STATUS_REPORT.md & USER_FEATURES_REPORT.md
+
+Below are the next tasks, in order.
+
+
+
+
+Phase 8 – Local Agent Runtime (Core CLI + Task Protocol)
+🎯 Goal: Have a local-agent process that registers with cloud, polls for work, and can execute simple tools (no CCTV/web yet).
+8.1. Local agent project setup
+In apps/local-agent/:
+ Create Python project with this structure:
+
+ apps/local-agent/
+  phi_agent/
+    __init__.py
+    main.py           # CLI entry
+    config.py         # load/validate YAML config
+    client.py         # HTTP client to orchestrator/core-api
+    registry.py       # register + heartbeat
+    worker.py         # polling loop
+    tools/
+      __init__.py
+      base.py
+      db.py           # basic DB tool (stub or simple)
+      file.py         # basic file read/write
+  pyproject.toml
+
+
+ Add dependencies: httpx or requests, pydantic, pyyaml, sqlalchemy (for DB later).
+8.2. Agent config format
+Task for Cursor:
+ Define a pydantic model for AgentLocalConfig in config.py that loads the YAML produced by /agents/{id}/config and extends it with local-only settings, e.g.:
+
+ agent_id: "..."
+org_id: "..."
+name: "Warehouse Analyst"
+server:
+  base_url: "https://api.yourdomain.com"
+  api_token: "..."
+local:
+  db:
+    dsn: "postgresql://user:pass@localhost:5432/wms"
+  file_roots:
+    reports: "/var/phi/reports"
+    exports: "/var/phi/exports"
+8.3. CLI
+In main.py:
+ Implement phi-agent CLI using argparse or typer:
+
+ phi-agent run --config /path/to/phi-agent-config.yaml
+
+
+This should:
+Load config
+Call registry.register()
+Start worker.run_loop()
+8.4. Registration & heartbeat
+Add backend endpoints in orchestrator:
+ POST /local-agents/heartbeat
+body: { agent_id, org_id, name, status, metadata }
+response: { local_agent_id }
+Cursor tasks:
+ Implement local_agents table is already defined in schema; wire it up.
+ In registry.py, call heartbeat on startup and periodically (e.g. every 30s) with status = ACTIVE.
+Phase 9 – Local Tools: Files, DB, Processes
+🎯 Goal: Local agent can actually do things on the machine: read/write files, query DB, run whitelisted commands.
+9.1. Tool protocol
+In orchestrator:
+ Add a minimal “tool task” model (either new table or reuse task_events with a type):
+tool_task_id, task_id, local_agent_id, tool_name, payload, status.
+ Add endpoint: GET /local-agents/{id}/pending-tool-tasks
+returns list of tool tasks for that local agent.
+ Extend /tool-callbacks to accept tool results:
+{ tool_task_id, task_id, result, error? }
+9.2. DBTool (local)
+In tools/db.py:
+ Implement DBTool with:
+Reads DSN from config.local.db.dsn
+Supports payload: { "query": "SELECT ...", "params": {} }
+Returns: rows as list of dicts
+9.3. FileTool (local)
+In tools/file.py:
+ Implement FileTool to:
+Read CSV/JSON files from allowed directories in config.local.file_roots
+Write reports to reports folder
+Payload example:
+Read: { "action": "read_csv", "path": "exports/daily_orders.csv" }
+Write: { "action": "write_text", "path": "reports/daily_report.md", "content": "..." }
+9.4. Worker loop connecting it
+In worker.py:
+ Poll /local-agents/{id}/pending-tool-tasks
+ Route each tool task to correct local tool class
+ Catch errors, send back results via /tool-callbacks
+Now, orchestrator tool nodes can be wired to real local execution via DB/file instead of stubbed data.
+Phase 10 – Browser Automation (WebTool)
+🎯 Goal: Agent can use web-based tools like a human (login to WMS portal, download exports, etc.).
+10.1. Add Playwright to local-agent
+Cursor:
+ Add dependency: playwright (Python).
+ Add init script to install browsers during setup (dev only).
+10.2. WebTool implementation
+In tools/web.py:
+ Implement a WebTool class that exposes a few high-level operations:
+login(url, username, password, selectors)
+goto(url)
+click(selector)
+fill(selector, value)
+download_report(...) (for known WMS screens)
+ Allow payload like:
+ {
+  "action": "run_script",
+  "script": "LOGIN_AND_EXPORT_DAILY_ORDERS",
+  "params": {
+    "date": "2025-12-04"
+  }
+}
+ Inside WebTool maintain a registry of named scripts; each is a Python function composed of Playwright commands.
+10.3. Orchestrator wiring
+ Add a WebToolNode in LangGraph for relevant workflows.
+ For now, support a simple scenario:
+“If WMS is web-only, use WebTool to export CSV instead of DBTool”.
+Phase 11 – Dashboard / App Builder (Streamlit)
+🎯 Goal: Agent can create a live dashboard app automatically when needed.
+11.1. Add Streamlit dependency
+In local-agent:
+ Add streamlit and pandas to dependencies.
+11.2. Dashboard spec & generator
+Create phi_agent/dashboard/generator.py:
+ Define a DashboardSpec pydantic model:
+
+ class ChartSpec(BaseModel):
+    type: Literal["bar", "line", "pie", "scatter"]
+    title: str
+    data_source: str  # CSV path or inline data key
+    x_field: str
+    y_field: str
+
+class TableSpec(BaseModel):
+    title: str
+    data_source: str
+
+class DashboardSpec(BaseModel):
+    title: str
+    description: Optional[str]
+    charts: list[ChartSpec]
+    tables: list[TableSpec]
+
+
+ Implement a function: generate_streamlit_app(spec: DashboardSpec, output_path: Path) that writes a dashboard.py file using the spec and Streamlit components.
+11.3. DashboardTool
+In tools/dashboard.py:
+ Implement DashboardTool that:
+Accepts payload: { "spec": { ... DashboardSpec JSON ... } }
+Calls generate_streamlit_app
+Launches it: e.g. subprocess.Popen(["streamlit", "run", "dashboard.py", "--server.port", "8501"])
+Returns the URL: http://localhost:8501
+11.4. Orchestrator integration
+ Add node that:
+Summarises data + insights into a DashboardSpec using LLM (LLM produces JSON)
+Sends to local agent via DashboardTool
+Stores returned URL in tasks.output
+Makes UI show “Open dashboard” link in frontend task result.
+Phase 12 – Communication Engine (Email, Slack)
+🎯 Goal: Agent can talk to colleagues like a real coworker via email / chat.
+12.1. EmailTool in core-api or orchestrator
+Backend:
+ Add config for SMTP or Microsoft Graph.
+ Implement EmailTool server-side:
+Input: { to: [...], subject, html_body }
+Sends email using configured provider.
+12.2. Slack/Teams (basic webhook)
+ Implement simple SlackTool using Incoming Webhooks:
+Input: { channel_name, text }
+Post message.
+12.3. Agent config
+ Extend agents.config to include:
+ "communication": {
+  "can_email": true,
+  "default_recipients": ["ops_manager@company.com"],
+  "can_slack": true,
+  "slack_channel": "#warehouse-ops"
+}
+
+
+12.4. Orchestrator nodes
+ Add nodes in workflows to:
+Send summary email after task success.
+Post Slack alert when severe safety issue found.
+Phase 13 – Human-like Task Engine (Progress + ETA)
+🎯 Goal: Every long task has progress % + ETA + narrative updates.
+13.1. DB changes
+ Extend tasks table:
+progress INTEGER DEFAULT 0
+eta_seconds INTEGER NULL
+current_step TEXT NULL
+13.2. Orchestrator helpers
+ Implement a helper in orchestrator:
+
+ def update_task_status(task_id, *, progress: int, eta_seconds: int | None, current_step: str | None):
+    # Update DB and emit a task_event
+
+
+“Implement Phase 8 local-agent CLI as described in PLAN, starting with apps/local-agent/phi_agent/main.py and config.py.”
+“Add DBTool and FileTool as in Phase 9.”
+“Add WebTool based on Playwright as in Phase 10.”
+“Implement DashboardTool with Streamlit (Phase 11).”
+“Extend tasks table for progress/eta (Phase 13) and update frontend.”
+
+
+Landing Page Goal
+The landing page must do 3 things:
+1. Explain the product clearly:
+“A virtual employee that behaves exactly like a human worker.”
+2. Build trust:
+AI agents usually sound like chatbots. Yours is different. Your page must show this is enterprise-grade.
+3. Drive the visitor to act:
+Book demo
+Sign up
+Watch showcase videos
+Install local agent
+⚡ 2. Landing Page Structure (Complete Blueprint)
+Below is the recommended full structure:
+A. HERO SECTION
+Headline:
+Meet Your First Virtual Employee.
+An AI-powered worker that performs tasks exactly like a human.
+Subheadline:
+Phi Agents connect to your systems, understand your workflows, audit your warehouse, generate dashboards, analyse CCTV, send emails, build apps, and communicate like a real colleague — 24/7.
+CTA Buttons:
+Book a Demo
+Try Phi Agent (Free)
+Visual:
+A looping animation showing:
+A human silhouette dissolving into a digital, glowing AI humanoid.
+Screens showing CCTV analysis, dashboards, emails being sent, etc.
+Or a 3D rotating “Virtual Worker Cube” with feature icons.
+B. HOW IT WORKS (High-Level Overview)
+3 simple steps:
+1. Create your Virtual Employee
+Pick a role — Warehouse Analyst, Safety Officer, Ops Manager, HR Assistant, etc.
+2. Connect your tools
+Give it access to WMS, ERP, CCTV, files, databases, email, browser.
+3. It starts working like a real teammate
+Your agent performs tasks, communicates, builds dashboards, and sends updates with ETA — exactly like a human.
+Visual:
+A 3-step horizontal infographic.
+C. THE DIFFERENCE: NOT A CHATBOT. A REAL WORKER.
+What makes Phi Agents unique?
+Feature bullets:
+Uses your systems like an employee
+Logs into web apps, downloads reports, fills forms, sends emails, reads dashboards.
+Sees your warehouse
+Analyses CCTV, detects defects, monitors worker safety.
+Builds dashboards & apps automatically
+If your company doesn't have reporting tools, your agent generates them instantly.
+Human-like communication
+Talks via text and voice, sends updates, asks clarifying questions.
+Runs locally & respects data boundaries
+Your data never leaves your environment. Agent executes tasks on-prem.
+Visual:
+Split-screen of chatbot vs human-like virtual assistant.
+D. FEATURE GRID — Show Depth, Show Power
+1. Autonomous Workflows
+Daily warehouse reports
+Safety audits
+Inventory accuracy checks
+Pick route optimization
+Bottleneck detection
+Labour productivity analysis
+2. Computer Vision Engine
+CCTV anomaly detection
+Safety violation monitoring
+Pallet/box defect recognition
+Worker PPE detection
+3. Multi-Tool Access
+DB queries
+File reading & writing
+Browser automation
+Email sending
+Slack/Teams messaging
+4. Dashboard Builder
+Automatic Streamlit dashboards
+Real-time charts & KPIs
+Inventory heatmaps
+Operational control rooms
+5. Communication Interface
+Human-like text responses
+Voice assistant mode
+Status updates + ETA
+6. Local Execution Engine
+Works on customer's machines
+Full privacy & security
+Customizable permissions
+Layout:
+6 cards with icons.
+E. USE CASES
+Split into 4 vertical cards:
+Warehouse & Logistics
+Daily operations reporting
+CCTV safety compliance
+Stock level prediction
+Worker productivity scoring
+Manufacturing
+Defect detection
+Line performance analytics
+Retail
+Inventory auditing
+Theft/safety monitoring
+Corporate Roles
+HR assistant
+Data analyst
+Finance operations
+Compliance reviewer
+F. LIVE DEMO SECTION
+Interactive Demo Ideas:
+Playback of CCTV detection:
+Show bounding boxes detecting unsafe forklift behaviour.
+Auto-generated dashboard:
+Click → “Generate Warehouse Audit” → interactive charts appear.
+Human-like communication example:
+Chat widget showing:
+“I’m running your inventory audit now, ETA 2 min 14 seconds.”
+Workflow timeline:
+A visual of the agent updating progress like a human.
+G. PRICING SECTION
+Starter (Free)
+1 virtual employee
+1 workflow
+No CCTV
+Pro (£99 / month per agent)
+Up to 5 workflows
+Local agent runtime
+Dashboard builder
+Slack/Email integration
+Enterprise (Custom)
+Unlimited agents
+Full CCTV integration
+On-prem GPU
+Advanced workflows
+Priority SLAs
+CTA: Contact Sales
+H. SECURITY & TRUST
+Key messages:
+All execution happens locally
+Agents run on your machines — not in the cloud.
+Fine-grained permission control
+Admins choose which tools the agent can access.
+Audit logs
+Every action is traceable.
+Compatible with SOC2, ISO27001
+(Even if not certified yet — you are “compatible / alignment-ready”)
+I. SOCIAL PROOF / TRUST INDICATORS
+If you don’t have actual clients yet, use capability claims, not logos:
+“Designed for modern warehouses”
+“Supports CCTV, WMS, ERP, BI systems”
+“Battle-tested workflows”
+Later: add logos & testimonials.
+J. FINAL CTA SECTION
+Headline:
+Hire your first Virtual Employee today.
+Subheadline:
+Start automating real work in minutes — reports, dashboards, analysis, audits, everything.
+Buttons:
+Get Started (Free)
+Book a Demo
+Visual:
+A digital worker avatar standing beside a human employee.
+⚙️ 3. Technical Layout (Next.js Implementation Blueprint)
+
+
+pages/
+  index.tsx        -> Landing page
+  demo.tsx         -> Interactive demo
+  pricing.tsx
+  security.tsx
+  contact.tsx
+components/
+  HeroSection.tsx
+  HowItWorks.tsx
+  FeatureGrid.tsx
+  UseCases.tsx
+  DemoSection.tsx
+  PricingCard.tsx
+  FinalCTA.tsx
+  Footer.tsx
+public/
+  images/ (hero visuals, icons)
+Use:
+shadcn/ui
+Framer Motion for animations
+Next/Image for hero visuals
+🎨 4. Visual Branding Suggestions
+Colors:
+Deep Navy (#0A1A2F)
+Electric Blue (#2D8CFF)
+Neon Cyan (#5FFBF1)
+Steel Grey (#B5C4D4)
+Style:
+Futuristic
+Clean
+Minimal lighting effects
+Slight 3D elements
+Hero Animation:
+A digital human silhouette
+A 3D warehouse overlay
+Real-time data streaming around it
+📣 5. Copywriting Tone
+Use the tone of:
+Apple (“magical but grounded”)
+OpenAI (“capable + serious”)
+NVIDIA (“powerful + futuristic”)
+Simple, crisp, credible.
+🚀 6. Marketing Angle (Your Positioning)
+Your Unique Position:
+"The world’s first realistic AI employee that performs the full job, not just chat."
+Main Message:
+“AI Agents are the past.
+Virtual Employees are the future.”
+Sub Message:
+“Instead of automating tiny tasks, Phi Agents automate entire jobs.”

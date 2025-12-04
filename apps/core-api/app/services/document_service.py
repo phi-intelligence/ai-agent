@@ -17,8 +17,13 @@ logger = setup_logging("core-api.document_service")
 from app.config import settings
 from app.models import Document, DocumentChunk
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+# Initialize OpenAI client - lazy initialization to ensure settings are loaded
+def get_openai_client():
+    """Get OpenAI client with current API key from settings"""
+    api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key == "your-openai-api-key-here":
+        raise ValueError("OPENAI_API_KEY is not set or is still the placeholder value")
+    return OpenAI(api_key=api_key)
 
 
 def extract_text_from_file(file_path: str, file_extension: str) -> str:
@@ -76,7 +81,8 @@ def generate_embedding(text: str) -> List[float]:
     from phi_utils.retry import retry_sync
     
     def call_embedding():
-        return openai_client.embeddings.create(
+        client = get_openai_client()
+        return client.embeddings.create(
             model="text-embedding-ada-002",
             input=text
         )

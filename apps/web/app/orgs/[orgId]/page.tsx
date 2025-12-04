@@ -1,16 +1,14 @@
 'use client'
 
-import { use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { orgApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function OrgDetailPage({ params }: { params: Promise<{ orgId: string }> }) {
-  const resolvedParams = use(params)
+export default function OrgDetailPage({ params }: { params: { orgId: string } }) {
   const router = useRouter()
-  const orgId = resolvedParams.orgId
+  const orgId = params.orgId
 
   const { data: org, isLoading } = useQuery({
     queryKey: ['org', orgId],

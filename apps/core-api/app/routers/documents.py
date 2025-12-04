@@ -186,14 +186,18 @@ async def search_documents(
     chunks_query = text("""
         SELECT id, document_id, chunk_text, metadata
         FROM document_chunks
-        WHERE agent_id = :agent_id
-        ORDER BY embedding <=> :embedding::vector
+        WHERE agent_id = CAST(:agent_id AS uuid)
+        ORDER BY embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
     """)
     
     result = db.execute(
         chunks_query,
-        {"agent_id": str(agent_uuid), "embedding": embedding_str, "limit": top_k}
+        {
+            "agent_id": str(agent_uuid),
+            "embedding": embedding_str,
+            "limit": top_k
+        }
     )
     
     chunks_data = result.fetchall()

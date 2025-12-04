@@ -17,6 +17,7 @@ from app.auth import (
     get_current_user
 )
 from app.routers import industries, role_templates, tools, agents, documents, admin
+from app.routers.agents import agent_detail_router
 from phi_utils.logging import setup_logging, ContextLogger
 
 # Set up structured logging
@@ -30,7 +31,10 @@ app = FastAPI(title="Phi Agents Core API", version="0.1.0")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server (default port)
+        "http://localhost:3001",  # Next.js dev server (alternative port)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -186,4 +190,131 @@ app.include_router(admin.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/internal/agents/{agent_id}")
+async def get_agent_internal(
+    agent_id: str,
+    db: Session = Depends(get_db)
+):
+    """Internal endpoint for service-to-service calls (no auth required)"""
+    from uuid import UUID
+    from app.models import Agent, AgentTool
+    from app.schemas import AgentDetailResponse
+    
+    try:
+        agent_uuid = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid agent ID"
+        )
+    
+    agent = db.query(Agent).filter(Agent.id == agent_uuid).first()
+    
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent not found"
+        )
+    
+    # Load agent tools
+    agent_tools = db.query(AgentTool).filter(AgentTool.agent_id == agent_uuid).all()
+    
+    return AgentDetailResponse(
+        id=agent.id,
+        org_id=agent.org_id,
+        industry_id=agent.industry_id,
+        role_template_id=agent.role_template_id,
+        name=agent.name,
+        status=agent.status,
+        system_prompt=agent.system_prompt,
+        config=agent.config,
+        created_at=agent.created_at,
+        agent_tools=[
+            {
+                "id": at.id,
+                "tool_id": at.tool_id,
+                "config": at.config
+            }
+            for at in agent_tools
+        ]
+    )
+
+
+@app.post("/internal/agents/{agent_id}/documents/search-docs")
+async def search_documents_internal(
+    agent_id: str,
+    search_request: dict,
+    db: Session = Depends(get_db)
+):
+    """Internal endpoint for document search (no auth required for service-to-service calls)"""
+    from uuid import UUID
+    from app.models import Agent, DocumentChunk
+    from app.services.document_service import generate_embedding
+    from sqlalchemy import text
+    
+    try:
+        agent_uuid = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid agent ID"
+        )
+    
+    agent = db.query(Agent).filter(Agent.id == agent_uuid).first()
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent not found"
+        )
+    
+    query = search_request.get("query", "")
+    top_k = search_request.get("top_k", 5)
+    
+    if not query:
+        return {"query": query, "chunks": []}
+    
+    # Generate embedding for query
+    query_embedding = generate_embedding(query)
+    
+    # Convert embedding list to string format for pgvector
+    embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+    
+    # Use raw SQL for vector similarity search
+    # Note: Using CAST for UUID to avoid parameter binding issues
+    from sqlalchemy import text
+    chunks_query = text("""
+        SELECT id, document_id, chunk_text, metadata
+        FROM document_chunks
+        WHERE agent_id = CAST(:agent_id AS uuid)
+        ORDER BY embedding <=> CAST(:embedding AS vector)
+        LIMIT :limit
+    """)
+    
+    result = db.execute(
+        chunks_query,
+        {
+            "agent_id": str(agent_uuid),
+            "embedding": embedding_str,
+            "limit": top_k
+        }
+    )
+    
+    chunks_data = result.fetchall()
+    
+    # Build response from results
+    chunks = []
+    for row in chunks_data:
+        chunks.append({
+            "id": str(row[0]),
+            "document_id": str(row[1]),
+            "chunk_text": row[2],
+            "metadata": row[3] if row[3] else {}
+        })
+    
+    return {
+        "query": query,
+        "chunks": chunks
+    }
 

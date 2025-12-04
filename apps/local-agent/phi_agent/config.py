@@ -27,7 +27,37 @@ class WorkflowConfig(BaseModel):
     schedule: Optional[str] = None
 
 
+class ServerConfig(BaseModel):
+    """Server connection settings"""
+    base_url: str = "http://localhost:8001"
+    api_token: Optional[str] = None
+
+
+class LocalDBConfig(BaseModel):
+    """Local database configuration"""
+    dsn: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+class LocalFileConfig(BaseModel):
+    """Local file system configuration"""
+    reports: Optional[str] = None
+    exports: Optional[str] = None
+    base_path: Optional[str] = None
+
+
+class LocalConfig(BaseModel):
+    """Local agent configuration"""
+    db: Optional[LocalDBConfig] = None
+    file_roots: Optional[LocalFileConfig] = None
+
+
 class AgentConfig(BaseModel):
+    """Complete agent configuration"""
     agent_id: str
     org_id: str
     name: str
@@ -37,6 +67,8 @@ class AgentConfig(BaseModel):
     tools: List[ToolConfig] = Field(default_factory=list)
     memory: MemoryConfig
     workflows: List[WorkflowConfig] = Field(default_factory=list)
+    server: Optional[ServerConfig] = None
+    local: Optional[LocalConfig] = None
 
 
 class Settings(BaseSettings):
@@ -58,6 +90,14 @@ def load_config(config_path: str) -> AgentConfig:
     
     with open(path, "r") as f:
         data = yaml.safe_load(f)
+    
+    # Set defaults for server if not provided
+    if "server" not in data:
+        data["server"] = {
+            "base_url": settings.orchestrator_url
+        }
+    elif "base_url" not in data["server"]:
+        data["server"]["base_url"] = settings.orchestrator_url
     
     return AgentConfig(**data)
 

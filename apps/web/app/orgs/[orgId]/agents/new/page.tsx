@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { orgApi, agentsApi, industriesApi, roleTemplatesApi, toolsApi } from '@/lib/api'
@@ -9,10 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function NewAgentPage({ params }: { params: Promise<{ orgId: string }> }) {
-  const resolvedParams = use(params)
+export default function NewAgentPage({ params }: { params: { orgId: string } }) {
   const router = useRouter()
-  const orgId = resolvedParams.orgId
+  const orgId = params.orgId
 
   const [industryId, setIndustryId] = useState<string>('')
   const [roleTemplateId, setRoleTemplateId] = useState<string>('')

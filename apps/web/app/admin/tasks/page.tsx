@@ -109,11 +109,25 @@ export default function AdminTasksPage() {
                       onClick={() => setSelectedTaskId(task.id)}
                     >
                       <div className="flex justify-between items-start">
-                        <div>
+                        <div className="flex-1">
                           <p className="font-medium text-sm">{task.type}</p>
                           <p className="text-xs text-gray-500">
                             {new Date(task.created_at).toLocaleString()}
                           </p>
+                          {task.current_step && (
+                            <p className="text-xs text-gray-600 mt-1">{task.current_step}</p>
+                          )}
+                          {(task.status === 'RUNNING' || task.status === 'PENDING') && task.progress !== undefined && (
+                            <div className="mt-2">
+                              <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                <div
+                                  className="bg-blue-600 h-1.5 rounded-full transition-all"
+                                  style={{ width: `${task.progress}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">{task.progress}%</p>
+                            </div>
+                          )}
                         </div>
                         <span
                           className={`text-xs px-2 py-1 rounded ${
@@ -154,7 +168,7 @@ export default function AdminTasksPage() {
                         const task = tasks.find((t: any) => t.id === selectedTaskId)
                         if (!task) return null
                         return (
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             <div>
                               <p className="text-sm font-medium">Type: {task.type}</p>
                               <p className="text-sm">Status: <span className={task.status === 'SUCCESS' ? 'text-green-600' : task.status === 'FAILED' ? 'text-red-600' : ''}>{task.status}</span></p>
@@ -162,12 +176,50 @@ export default function AdminTasksPage() {
                                 <p className="text-sm text-red-600 mt-2">Error: {task.error}</p>
                               )}
                             </div>
+
+                            {/* Progress Bar */}
+                            {(task.status === 'RUNNING' || task.status === 'PENDING') && task.progress !== undefined && (
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sm font-medium">Progress</span>
+                                  <span className="text-sm text-gray-600">{task.progress}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                  <div
+                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${task.progress}%` }}
+                                  />
+                                </div>
+                                {task.current_step && (
+                                  <p className="text-xs text-gray-600 mt-1">{task.current_step}</p>
+                                )}
+                                {task.eta_seconds && task.eta_seconds > 0 && (
+                                  <p className="text-xs text-gray-500">
+                                    ETA: {Math.ceil(task.eta_seconds / 60)} minute{Math.ceil(task.eta_seconds / 60) !== 1 ? 's' : ''}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
                             {task.output && (
-                              <div>
+                              <div className="space-y-2">
                                 <p className="text-sm font-medium mb-1">Output:</p>
                                 <pre className="text-xs bg-gray-50 p-2 rounded overflow-auto max-h-32">
                                   {typeof task.output === 'string' ? task.output : JSON.stringify(task.output, null, 2)}
                                 </pre>
+                                {task.output.dashboard_url && (
+                                  <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                                    <p className="text-xs font-medium text-blue-900 mb-1">Dashboard Available</p>
+                                    <a
+                                      href={task.output.dashboard_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                      Open Dashboard →
+                                    </a>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentsApi, documentsApi, tasksApi } from '@/lib/api'
@@ -8,11 +8,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { DocumentUpload } from '@/components/DocumentUpload'
+import { ChatInterface } from '@/components/agent/ChatInterface'
+import { TaskHistory } from '@/components/agent/TaskHistory'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const resolvedParams = use(params)
+export default function AgentDetailPage({ params }: { params: { agentId: string } }) {
   const router = useRouter()
-  const agentId = resolvedParams.agentId
+  const agentId = params.agentId
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -120,7 +122,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h2 className="text-2xl font-bold mb-2">{agent.name}</h2>
@@ -140,17 +142,24 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             >
               Download Config (YAML)
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => runTaskMutation.mutate()}
-              disabled={runTaskMutation.isPending || !!runningTaskId}
-            >
-              {runTaskMutation.isPending ? 'Starting...' : 'Run Test Task (Daily Warehouse Report)'}
-            </Button>
           </div>
         </div>
 
-        <div className="grid gap-6">
+        <Tabs defaultValue="chat" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="chat">Chat with Agent</TabsTrigger>
+            <TabsTrigger value="details">Agent Details</TabsTrigger>
+            <TabsTrigger value="tasks">Task History</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="chat" className="mt-0">
+            <div className="h-[calc(100vh-300px)] min-h-[600px]">
+              <ChatInterface agentId={agentId} agentName={agent.name} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="details" className="mt-0">
+            <div className="grid gap-6">
           <Card>
             <CardHeader>
               <CardTitle>General Information</CardTitle>
@@ -282,57 +291,18 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             </CardContent>
           </Card>
 
-          {(runningTaskId || taskResult) && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Task Execution</CardTitle>
-                <CardDescription>
-                  {task?.status === 'RUNNING' || task?.status === 'PENDING' 
-                    ? 'Task is running...' 
-                    : task?.status === 'SUCCESS' 
-                    ? 'Task completed successfully' 
-                    : 'Task failed'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {task && (
-                  <>
-                    <div>
-                      <p className="text-sm font-medium">Status: <span className={task.status === 'SUCCESS' ? 'text-green-600' : task.status === 'FAILED' ? 'text-red-600' : 'text-blue-600'}>{task.status}</span></p>
-                      {task.error && (
-                        <p className="text-sm text-red-600 mt-2">Error: {task.error}</p>
-                      )}
-                    </div>
-                    
-                    {task.output && (
-                      <div>
-                        <h4 className="font-medium mb-2">Report:</h4>
-                        <pre className="text-sm bg-gray-50 p-4 rounded-md overflow-auto whitespace-pre-wrap">
-                          {task.output.full_report_md || JSON.stringify(task.output, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                    
-                    {task.events && task.events.length > 0 && (
-                      <div>
-                        <h4 className="font-medium mb-2">Events:</h4>
-                        <div className="space-y-1">
-                          {task.events.map((event: any) => (
-                            <div key={event.id} className="text-xs text-gray-600">
-                              {new Date(event.timestamp).toLocaleTimeString()} - {event.event_type}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="tasks" className="mt-0">
+            <TaskHistory agentId={agentId} />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   )
 }
+
+
+
 

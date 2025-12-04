@@ -6,9 +6,13 @@ settings = Settings()
 
 
 class OrchestratorClient:
-    def __init__(self, base_url: Optional[str] = None):
+    def __init__(self, base_url: Optional[str] = None, api_token: Optional[str] = None):
         self.base_url = base_url or settings.orchestrator_url
-        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
+        self.api_token = api_token
+        headers = {}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0, headers=headers)
 
     async def heartbeat(
         self,

@@ -18,6 +18,9 @@ class Task(Base):
     input = Column(JSONB)
     output = Column(JSONB)
     error = Column(Text)
+    progress = Column(Integer, default=0)  # 0-100
+    eta_seconds = Column(Integer, nullable=True)
+    current_step = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -48,7 +51,7 @@ class LocalAgent(Base):
     name = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="ENROLLED")
     last_heartbeat_at = Column(TIMESTAMP(timezone=True))
-    metadata = Column(JSONB)
+    extra_metadata = Column(JSONB)
 
 
 class ToolTask(Base):

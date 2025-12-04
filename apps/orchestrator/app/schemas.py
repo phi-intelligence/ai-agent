@@ -18,6 +18,9 @@ class TaskResponse(BaseModel):
     input: Optional[Dict[str, Any]]
     output: Optional[Dict[str, Any]]
     error: Optional[str]
+    progress: Optional[int] = 0
+    eta_seconds: Optional[int] = None
+    current_step: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

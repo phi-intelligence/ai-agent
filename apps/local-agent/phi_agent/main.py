@@ -25,7 +25,10 @@ def cli(config: str, poll_interval: int):
 
 async def main(config: AgentConfig, poll_interval: int):
     """Main async function"""
-    client = OrchestratorClient()
+    # Get server URL and token from config
+    server_url = config.server.base_url if config.server else None
+    api_token = config.server.api_token if config.server else None
+    client = OrchestratorClient(base_url=server_url, api_token=api_token)
     registry = LocalAgentRegistry(config, client)
     
     try:

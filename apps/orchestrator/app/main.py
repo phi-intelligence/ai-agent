@@ -1,6 +1,11 @@
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
+# Add shared-utils to path
+# From app/main.py: go up 3 levels (app/orchestrator/app -> app/orchestrator -> app -> root)
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+shared_utils_path = os.path.join(base_dir, 'packages', 'shared-utils')
+if os.path.exists(shared_utils_path) and shared_utils_path not in sys.path:
+    sys.path.insert(0, shared_utils_path)
 
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +37,10 @@ app = FastAPI(title="Phi Agents Orchestrator", version="0.1.0")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server (default port)
+        "http://localhost:3001",  # Next.js dev server (alternative port)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,7 +89,10 @@ async def execute_workflow(task_id: UUID, agent_id: UUID, org_id: UUID, task_typ
                 exceptions=(Exception,),
                 logger=ctx_logger.logger
             )
-            system_prompt = agent_data.get("system_prompt", "You are a warehouse analyst.")
+            # Get system_prompt, ensuring it's never None
+            system_prompt = agent_data.get("system_prompt") or "You are a warehouse analyst."
+            if not isinstance(system_prompt, str):
+                system_prompt = "You are a warehouse analyst."
             agent_config = agent_data.get("config", {})
             ctx_logger.info("Fetched agent config from core API")
         except Exception as e:
@@ -107,7 +118,8 @@ async def execute_workflow(task_id: UUID, agent_id: UUID, org_id: UUID, task_typ
         # Run workflow with timeout
         try:
             if task_type == "DAILY_WAREHOUSE_REPORT":
-                workflow = create_warehouse_report_workflow()
+                from app.workflows.warehouse_report import create_warehouse_report_workflow
+                workflow = create_warehouse_report_workflow(db_session=db)
                 final_state = await asyncio.wait_for(
                     workflow.ainvoke(initial_state),
                     timeout=TASK_TIMEOUT
@@ -119,10 +131,14 @@ async def execute_workflow(task_id: UUID, agent_id: UUID, org_id: UUID, task_typ
             if final_state.get("error"):
                 task.status = "FAILED"
                 task.error = final_state["error"]
+                task.progress = 100  # Mark as complete even if failed
                 ctx_logger.error(f"Workflow failed: {final_state['error']}")
             else:
                 task.status = "SUCCESS"
                 task.output = final_state.get("report", {})
+                task.progress = 100  # Mark as complete
+                task.current_step = None
+                task.eta_seconds = None
                 ctx_logger.info("Workflow completed successfully")
             
             # Log completion event
@@ -333,6 +349,9 @@ async def get_task(
         input=task.input,
         output=task.output,
         error=task.error,
+        progress=task.progress or 0,
+        eta_seconds=task.eta_seconds,
+        current_step=task.current_step,
         created_at=task.created_at,
         updated_at=task.updated_at,
         events=[
@@ -392,14 +411,14 @@ async def heartbeat(
             org_id=org_uuid,
             name=request.name,
             status=request.status,
-            metadata=request.capabilities
+            extra_metadata=request.capabilities
         )
         db.add(local_agent)
     else:
         # Update existing
         local_agent.status = request.status
         local_agent.last_heartbeat_at = datetime.utcnow()
-        local_agent.metadata = request.capabilities
+        local_agent.extra_metadata = request.capabilities
     
     db.commit()
     db.refresh(local_agent)
